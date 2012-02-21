@@ -1,5 +1,4 @@
 
-
 """ Classes for interpolating values.
 """
 
@@ -212,7 +211,7 @@ class interp1d(object):
         axis must be equal to the length of `x`.
     kind : str or int, optional
         Specifies the kind of interpolation as a string
-        ('linear','nearest', 'zero', 'slinear', 'quadratic, 'cubic')
+        ('linear','nearest', 'previous', 'zero', 'slinear', 'quadratic, 'cubic')
         or as an integer specifying the order of the spline interpolator
         to use. Default is 'linear'.
     axis : int, optional
@@ -267,7 +266,7 @@ class interp1d(object):
         elif isinstance(kind, int):
             order = kind
             kind = 'spline'
-        elif kind not in ('linear', 'nearest'):
+        elif kind not in ('linear', 'nearest', 'previous'):
             raise NotImplementedError("%s is unsupported: Use fitpack "\
                                       "routines for other types." % kind)
         x = array(x, copy=self.copy)
@@ -286,7 +285,7 @@ class interp1d(object):
         self.axis = axis % len(y.shape)
         self._kind = kind
 
-        if kind in ('linear', 'nearest'):
+        if kind in ('linear', 'nearest', 'previous'):
             # Make a "view" of the y array that is rotated to the interpolation
             # axis.
             axes = range(y.ndim)
@@ -300,6 +299,8 @@ class interp1d(object):
             elif kind == 'nearest':
                 self.x_bds = (x[1:] + x[:-1]) / 2.0
                 self._call = self._call_nearest
+            elif kind == 'previous':
+                self._call = self._call_previous
         else:
             axes = range(y.ndim)
             del axes[self.axis]
@@ -366,6 +367,12 @@ class interp1d(object):
         y_new = self.y[..., x_new_indices]
 
         return y_new
+        
+    def _call_previous(self, x_new):
+        x_new_indices = searchsorted(self.x, x_new, side='right') - 1
+        x_new_indices = x_new_indices.clip(0,  len(self.x)-1).astype(intp)
+        y_new = self.y[..., x_new_indices]
+        return y_new
 
     def _call_spline(self, x_new):
         x_new =np.asarray(x_new)
@@ -414,7 +421,7 @@ class interp1d(object):
                 else:
                     y_new[...] = self.fill_value
             return asarray(y_new)
-        elif self._kind in ('linear', 'nearest'):
+        elif self._kind in ('linear', 'nearest', 'previous'):
             y_new[..., out_of_bounds] = self.fill_value
             axes = range(ny - nx)
             axes[self.axis:self.axis] = range(ny - nx, ny)
@@ -442,7 +449,7 @@ class interp1d(object):
         # fall outside the range of x.  Otherwise, we return an array indicating
         # which values are outside the boundary region.
         below_bounds = x_new < self.x[0]
-        above_bounds = x_new > self.x[-1]
+        above_bounds = (self._kind != 'previous') * (x_new > self.x[-1])
 
         # !! Could provide more information about which values are out of bounds
         if self.bounds_error and below_bounds.any():
